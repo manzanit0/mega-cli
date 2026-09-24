@@ -1,0 +1,39 @@
+version: "3"
+
+vars:
+  # Version is derived from git when available so release builds are
+  # traceable, falling back to "dev" outside a repository.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+
+tasks:
+  build:
+    desc: Build the mega binary into bin/
+    cmds:
+      - go build -ldflags "-s -w -X github.com/manzanit0/mega-cli/internal/cmd.Version={{.VERSION}}" -o bin/mega .
+
+  install:
+    desc: Install mega into GOBIN
+    cmds:
+      - go install -ldflags "-X github.com/manzanit0/mega-cli/internal/cmd.Version={{.VERSION}}" .
+
+  test:
+    desc: Run unit tests (live tests skip without MEGA_EMAIL/MEGA_PASSWORD)
+    cmds:
+      - go test ./...
+
+  test:live:
+    desc: Run live tests against a real MEGA account
+    # Live tests hit the real API and create/destroy a temp folder, so they
+    # are opt-in and never cached.
+    preconditions:
+      - sh: test -n "$MEGA_EMAIL" && test -n "$MEGA_PASSWORD"
+        msg: "set MEGA_EMAIL and MEGA_PASSWORD"
+    cmds:
+      - go test -count=1 -run Live -v ./internal/remote/
+
+  lint:
+    desc: Run gofmt and go vet
+    cmds:
+      - test -z "$(gofmt -l .)"
+      - go vet ./...
