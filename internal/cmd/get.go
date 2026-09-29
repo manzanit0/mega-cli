@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	mega "github.com/t3rm1n4l/go-mega"
@@ -83,8 +84,10 @@ func (g *getter) tree(p remote.Path, dst string) error {
 		return err
 	}
 	return g.c.Walk(p, func(cp remote.Path, n *mega.Node) error {
-		rel := filepath.Join(cp.Parts[len(p.Parts):]...)
-		target := filepath.Join(dst, rel)
+		target := dst
+		for _, part := range cp.Parts[len(p.Parts):] {
+			target = filepath.Join(target, localName(part))
+		}
 		if remote.IsDir(n) {
 			return os.MkdirAll(target, 0o755)
 		}
@@ -132,16 +135,23 @@ Files are written atomically and verified against MEGA's MAC.`,
 	return cmd
 }
 
+// localName makes a MEGA name safe as a local file name. "/" cannot appear
+// in local names, so it is replaced with U+FF0F FULLWIDTH SOLIDUS, which
+// looks the same.
+func localName(name string) string {
+	return strings.ReplaceAll(name, "/", "\uFF0F")
+}
+
 // run resolves the destination and downloads p.
 func (g *getter) run(p remote.Path, local string) error {
-	n, err := g.c.Lookup(p)
+	p, n, err := g.c.Resolve(p)
 	if errors.Is(err, remote.ErrSharedRoot) {
 		return fmt.Errorf("pick a specific shared folder, see `mega shares`")
 	}
 	if err != nil {
 		return err
 	}
-	name := n.GetName()
+	name := localName(n.GetName())
 	if p.IsRoot() {
 		name = "MEGA"
 	}

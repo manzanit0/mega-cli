@@ -62,9 +62,17 @@ source is moved and renamed to dst. Restore from the trash with
 	}
 }
 
-// runMv moves each source into or onto dst.
+// runMv moves each source into or onto dst. Paths are resolved first so
+// names containing "/" keep their real name.
 func runMv(c *remote.Client, srcs []remote.Path, dst remote.Path) error {
-	d, err := c.Lookup(dst)
+	for i, s := range srcs {
+		p, _, err := c.Resolve(s)
+		if err != nil {
+			return err
+		}
+		srcs[i] = p
+	}
+	dst, d, err := c.Resolve(dst)
 	if err != nil && !isNotFound(err) {
 		return err
 	}

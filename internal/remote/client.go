@@ -127,26 +127,10 @@ func (c *Client) rootNode(ns Namespace) (*mega.Node, error) {
 	}
 }
 
-// Lookup resolves a path to its node.
+// Lookup resolves a path to its node. See Resolve for names with "/".
 func (c *Client) Lookup(p Path) (*mega.Node, error) {
-	if p.IsRoot() {
-		return c.rootNode(p.NS)
-	}
-	children, err := c.rootChildren(p.NS)
-	if err != nil {
-		return nil, err
-	}
-	var n *mega.Node
-	for _, name := range p.Parts {
-		n = findChild(children, name)
-		if n == nil {
-			return nil, &NotFoundError{Path: p}
-		}
-		if children, err = c.m.FS.GetChildren(n); err != nil {
-			return nil, err
-		}
-	}
-	return n, nil
+	_, n, err := c.Resolve(p)
+	return n, err
 }
 
 // findChild returns the first node in nodes with the given name.
@@ -222,6 +206,12 @@ func (c *Client) Mkdir(p Path, parents bool) (*mega.Node, error) {
 	if p.IsRoot() {
 		if parents {
 			return c.rootNode(p.NS)
+		}
+		return nil, fmt.Errorf("%s: already exists", p)
+	}
+	if n, err := c.Lookup(p); err == nil {
+		if parents && IsDir(n) {
+			return n, nil
 		}
 		return nil, fmt.Errorf("%s: already exists", p)
 	}

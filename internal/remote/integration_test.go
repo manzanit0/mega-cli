@@ -39,6 +39,18 @@ func TestLiveRoundTrip(t *testing.T) {
 		}
 	})
 
+	top, err := c.Lookup(base)
+	if err != nil {
+		t.Fatalf("lookup base: %v", err)
+	}
+	if _, err := c.m.CreateDir("2014/2015", top); err != nil {
+		t.Fatalf("create slash folder: %v", err)
+	}
+	if p, n, err := c.Resolve(base.Join("2014").Join("2015")); err != nil ||
+		n.GetName() != "2014/2015" || p.Base() != "2014/2015" {
+		t.Fatalf("resolve slash folder: %v %v", p, err)
+	}
+
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "in.txt")
 	want := []byte(strings.Repeat("mega-cli ", 50000))
@@ -56,7 +68,7 @@ func TestLiveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
-	if top, _ := c.Lookup(base); c.Size(top) != int64(len(want)) {
+	if c.Size(top) != int64(len(want)) {
 		t.Fatalf("folder size = %d, want %d", c.Size(top), len(want))
 	}
 	dst := filepath.Join(tmp, "out.txt")

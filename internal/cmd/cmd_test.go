@@ -116,3 +116,13 @@ func TestSortOrder(t *testing.T) {
 		t.Error("expected invalid key error")
 	}
 }
+
+// TestLocalName checks "/" in MEGA names becomes a fullwidth slash.
+func TestLocalName(t *testing.T) {
+	if got := localName("UC3M 2014/2015"); got != "UC3M 2014／2015" {
+		t.Errorf("localName = %q", got)
+	}
+	if got := localName("plain.txt"); got != "plain.txt" {
+		t.Errorf("localName = %q", got)
+	}
+}
