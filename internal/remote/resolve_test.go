@@ -59,6 +59,16 @@ func TestResolveSlashNames(t *testing.T) {
 	}
 }
 
+// TestLocalName checks "/" in MEGA names becomes a fullwidth slash.
+func TestLocalName(t *testing.T) {
+	if got := LocalName("UC3M 2014/2015"); got != "UC3M 2014\uFF0F2015" {
+		t.Errorf("LocalName = %q", got)
+	}
+	if got := LocalName("plain.txt"); got != "plain.txt" {
+		t.Errorf("LocalName = %q", got)
+	}
+}
+
 // TestResolvePrefersSplit checks that plain folders win over slash names,
 // and that the resolver backtracks when the plain route is a dead end.
 func TestResolvePrefersSplit(t *testing.T) {

@@ -240,6 +240,12 @@ func (c *Client) Mkdir(p Path, parents bool) (*mega.Node, error) {
 	return c.m.CreateDir(p.Base(), parent)
 }
 
+// MkdirIn creates a folder named name directly inside parent.
+func (c *Client) MkdirIn(parent *mega.Node, name string) (*mega.Node, error) {
+	c.invalidate()
+	return c.m.CreateDir(name, parent)
+}
+
 // Move moves src into the folder parent.
 func (c *Client) Move(src, parent *mega.Node) error {
 	c.invalidate()

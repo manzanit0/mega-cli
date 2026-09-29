@@ -53,6 +53,13 @@ func (c *Client) Resolve(p Path) (Path, *mega.Node, error) {
 	return Path{NS: p.NS, Parts: names}, n, nil
 }
 
+// LocalName makes a MEGA name safe as a local file name. "/" cannot appear
+// in local names, so it is replaced with U+FF0F FULLWIDTH SOLIDUS, which
+// looks the same.
+func LocalName(name string) string {
+	return strings.ReplaceAll(name, "/", "\uFF0F")
+}
+
 // dirChildren returns a folder's children, or false for files.
 func (c *Client) dirChildren(n *mega.Node) ([]*mega.Node, bool) {
 	if !IsDir(n) {

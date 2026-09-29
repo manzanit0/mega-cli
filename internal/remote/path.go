@@ -37,10 +37,20 @@ type Path struct {
 	Parts []string
 }
 
-// Parse turns user input such as "docs/a.txt", "/docs" or "trash:/x" into
-// a Path. Relative paths are resolved from the namespace root.
+// Scheme is the optional prefix marking a MEGA path, e.g. "mega://docs".
+const Scheme = "mega://"
+
+// IsRemote reports whether s carries the mega:// prefix.
+func IsRemote(s string) bool {
+	return strings.HasPrefix(s, Scheme)
+}
+
+// Parse turns user input such as "docs/a.txt", "/docs", "trash:/x" or
+// "mega://docs" into a Path. Relative paths are resolved from the
+// namespace root.
 func Parse(s string) Path {
 	p := Path{NS: Cloud}
+	s = strings.TrimPrefix(s, Scheme)
 	switch {
 	case strings.HasPrefix(s, "trash:"):
 		p.NS, s = Trash, strings.TrimPrefix(s, "trash:")

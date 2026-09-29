@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/manzanit0/mega-cli/internal/mirror"
 )
 
 // TestMatches checks the find filters.
@@ -117,12 +119,78 @@ func TestSortOrder(t *testing.T) {
 	}
 }
 
-// TestLocalName checks "/" in MEGA names becomes a fullwidth slash.
-func TestLocalName(t *testing.T) {
-	if got := localName("UC3M 2014/2015"); got != "UC3M 2014／2015" {
-		t.Errorf("localName = %q", got)
+// TestLocation checks mega:// parsing for sync arguments.
+func TestLocation(t *testing.T) {
+	for in, want := range map[string]string{
+		"mega://Photos":       "/Photos",
+		"mega:///Photos/2024": "/Photos/2024",
+		"mega://":             "/",
+		"mega://trash:/old":   "trash:/old",
+	} {
+		p, ok := location(in)
+		if !ok || p.String() != want {
+			t.Errorf("location(%q) = %q %v, want %q", in, p, ok, want)
+		}
 	}
-	if got := localName("plain.txt"); got != "plain.txt" {
-		t.Errorf("localName = %q", got)
+	for _, local := range []string{"/Volumes/Backup", "Photos", "./mega://x"} {
+		if _, ok := location(local); ok {
+			t.Errorf("location(%q) treated as remote", local)
+		}
+	}
+}
+
+// TestRunSyncValidation checks argument errors happen before connecting.
+func TestRunSyncValidation(t *testing.T) {
+	cases := []struct {
+		f        syncFlags
+		src, dst string
+	}{
+		{syncFlags{}, "/a", "/b"},
+		{syncFlags{}, "mega://a", "mega://b"},
+		{syncFlags{permanent: true}, "/a", "mega://b"},
+		{syncFlags{permanent: true, del: true}, "mega://a", "/b"},
+	}
+	for _, c := range cases {
+		if err := runSync(&c.f, c.src, c.dst); err == nil {
+			t.Errorf("runSync(%+v, %q, %q) = nil, want error", c.f, c.src, c.dst)
+		}
+	}
+}
+
+// TestCheckCpArgs checks cp rejects same-side and mixed copies.
+func TestCheckCpArgs(t *testing.T) {
+	dir := t.TempDir()
+	ok := [][]string{
+		{"a.txt", "mega://docs/"},
+		{"a", "b", "mega://docs"},
+		{"-", "mega://x"},
+		{"mega://a", "mega://b", dir},
+		{"mega://a", "-"},
+		{"mega://a", "out.txt"},
+	}
+	for _, args := range ok {
+		if err := checkCpArgs(args[:len(args)-1], args[len(args)-1]); err != nil {
+			t.Errorf("checkCpArgs(%v) = %v", args, err)
+		}
+	}
+	bad := [][]string{
+		{"a", "b"},
+		{"mega://a", "mega://b"},
+		{"a", "mega://b", "mega://c"},
+		{"mega://a", "b", dir},
+		{"mega://a", "mega://b", dir + "/missing"},
+	}
+	for _, args := range bad {
+		if err := checkCpArgs(args[:len(args)-1], args[len(args)-1]); err == nil {
+			t.Errorf("checkCpArgs(%v) = nil, want error", args)
+		}
+	}
+}
+
+// TestConfirmLocalDeleteNonInteractive checks prompts are skipped off-TTY.
+func TestConfirmLocalDeleteNonInteractive(t *testing.T) {
+	f := syncFlags{}
+	if err := f.confirmLocalDelete([]mirror.Action{{Op: mirror.Delete, Path: "x"}}); err != nil {
+		t.Errorf("non-interactive confirm = %v, want nil", err)
 	}
 }

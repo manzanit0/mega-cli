@@ -18,6 +18,8 @@ mega ls -l /
 mega tree /projects -L 2
 mega ls -l --sort size /backup      # largest first; -r to reverse
 mega find --name '*.pdf' --json | jq -r '.[].path'
+mega cp ./photos mega://backup/     # upload; like `aws s3 cp`
+mega cp mega://docs/a.pdf ~/Desktop/ # download
 mega put ./photos /backup/          # recursive, creates parents
 mega put -f notes.md /docs/notes.md # replace; old version goes to trash
 pg_dump db | mega put - /db.sql     # upload from stdin
@@ -27,14 +29,31 @@ mega mv /a.txt /archive/
 mega rm -r /old                     # to trash; --permanent to destroy
 mega mv trash:/old /                # restore
 mega link /docs/report.pdf
+mega sync -n --delete mega://Photos /Volumes/Backup/Photos  # preview
+mega sync --delete -x .DS_Store /Volumes/Backup/Photos mega://Photos
 mega du /backup && mega quota
 ```
 
-Paths are absolute from the Cloud Drive root. `trash:` and `shared:`
+Paths are absolute from the Cloud Drive root; `docs/a.txt`, `/docs/a.txt`
+and `mega://docs/a.txt` are the same. `cp` and `sync` require the
+`mega://` prefix to tell MEGA paths from local ones. `trash:` and `shared:`
 prefixes address the Rubbish Bin and incoming shares.
 
 Every command supports `--json`. Progress is shown on a TTY and hidden with
 `-q`. Use `-j N` for parallel transfer workers.
+
+## Sync
+
+`mega sync <source> <destination>` makes the destination match the source,
+transferring only new and changed files. Like `aws s3 sync`, exactly one
+side must be remote, marked with the `mega://` prefix.
+`--delete` removes items missing from the source: permanently on disk, or
+to the MEGA trash (`--permanent` to destroy). Permanent local deletes ask
+for confirmation on a terminal (`-y` skips it). Use `-n` to preview and
+`-x` to exclude names by glob.
+
+Changes are detected by size and time. Downloads are stamped with MEGA's
+timestamp; uploads happen when a local file is newer than its MEGA copy.
 
 ## Authentication
 

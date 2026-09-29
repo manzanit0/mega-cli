@@ -42,9 +42,11 @@ func NewRoot() *cobra.Command {
 		Short: "A developer-friendly CLI for MEGA cloud storage",
 		Long: `A developer-friendly CLI for MEGA cloud storage.
 
-Remote paths are absolute from the Cloud Drive root ("docs/a.txt" and
-"/docs/a.txt" are the same). Prefix with "trash:" for the Rubbish Bin or
-"shared:" for folders shared with you, e.g. "trash:/old.txt".
+Remote paths are absolute from the Cloud Drive root ("docs/a.txt",
+"/docs/a.txt" and "mega://docs/a.txt" are the same). The mega:// prefix is
+required by cp and sync, where it tells MEGA paths from local ones. Use
+"trash:" for the Rubbish Bin or "shared:" for folders shared with you,
+e.g. "trash:/old.txt".
 
 Credentials: run "mega login" once, or set MEGA_EMAIL and MEGA_PASSWORD
 (and optionally MEGA_MFA) for non-interactive use.`,
@@ -61,9 +63,9 @@ Credentials: run "mega login" once, or set MEGA_EMAIL and MEGA_PASSWORD
 	root.AddCommand(
 		newLoginCmd(), newLogoutCmd(), newWhoamiCmd(), newQuotaCmd(),
 		newLsCmd(), newTreeCmd(), newFindCmd(), newStatCmd(), newDuCmd(),
-		newGetCmd(), newCatCmd(), newPutCmd(),
+		newCpCmd(), newGetCmd(), newCatCmd(), newPutCmd(),
 		newMkdirCmd(), newMvCmd(), newRmCmd(), newLinkCmd(),
-		newTrashCmd(), newSharesCmd(),
+		newSyncCmd(), newTrashCmd(), newSharesCmd(),
 	)
 	return root
 }

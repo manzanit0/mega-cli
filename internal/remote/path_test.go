@@ -22,6 +22,10 @@ func TestParse(t *testing.T) {
 		{"trash:", Trash, nil, "trash:/"},
 		{"trash:/old", Trash, []string{"old"}, "trash:/old"},
 		{"shared:team/x", Shared, []string{"team", "x"}, "shared:/team/x"},
+		{"mega://docs", Cloud, []string{"docs"}, "/docs"},
+		{"mega:///docs/a", Cloud, []string{"docs", "a"}, "/docs/a"},
+		{"mega://", Cloud, nil, "/"},
+		{"mega://trash:/old", Trash, []string{"old"}, "trash:/old"},
 	}
 	for _, c := range cases {
 		p := Parse(c.in)
