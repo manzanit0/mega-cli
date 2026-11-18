@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
-	"github.com/manzanit0/mega-cli/internal/session"
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/remote"
+	"github.com/manzanit0/mega-cli/pkg/session"
 )
 
 // stdin is a shared buffered reader over standard input for prompts.

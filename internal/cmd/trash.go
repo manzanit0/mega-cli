@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // newTrashCmd builds `mega trash` and its subcommands.

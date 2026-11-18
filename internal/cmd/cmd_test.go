@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/manzanit0/mega-cli/internal/mirror"
+	"github.com/manzanit0/mega-cli/pkg/mirror"
 )
 
 // TestMatches checks the find filters.

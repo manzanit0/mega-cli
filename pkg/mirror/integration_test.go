@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // liveClient logs in with MEGA_EMAIL and MEGA_PASSWORD or skips the test.

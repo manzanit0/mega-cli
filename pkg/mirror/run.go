@@ -9,7 +9,7 @@ import (
 
 	mega "github.com/t3rm1n4l/go-mega"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // Options controls a sync run.
