@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	mega "github.com/t3rm1n4l/go-mega"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
-	"github.com/manzanit0/mega-cli/internal/session"
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/remote"
+	"github.com/manzanit0/mega-cli/pkg/session"
 )
 
 // Version is the CLI version, set at build time via -ldflags.

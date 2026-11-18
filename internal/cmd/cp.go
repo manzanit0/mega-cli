@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // newCpCmd builds `mega cp`.

@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/manzanit0/mega-cli/internal/mirror"
-	"github.com/manzanit0/mega-cli/internal/remote"
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/mirror"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // syncFlags holds flags shared by the sync subcommands.

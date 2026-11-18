@@ -77,6 +77,14 @@ task lint test build
 MEGA_EMAIL=... MEGA_PASSWORD=... task test:live
 ```
 
+## Library
+
+The building blocks behind the CLI are importable from other Go projects:
+
+- `github.com/manzanit0/mega-cli/pkg/remote`: client, paths, transfers.
+- `github.com/manzanit0/mega-cli/pkg/mirror`: sync planning and execution.
+- `github.com/manzanit0/mega-cli/pkg/session`: session storage.
+
 ## Limitations
 
 Inherited from go-mega: no server-side copy, no importing public links, no

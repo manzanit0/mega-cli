@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	mega "github.com/t3rm1n4l/go-mega"
 
-	"github.com/manzanit0/mega-cli/internal/remote"
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // newMkdirCmd builds `mega mkdir`.
