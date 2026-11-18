@@ -28,7 +28,7 @@ type Options struct {
 	// OnSkip is called for local items that cannot be synced.
 	OnSkip func(string)
 	// Progress returns a byte counter and a finish callback for a transfer.
-	Progress func(label string, total int64) (remote.ProgressFunc, func())
+	Progress remote.ProgressFactory
 	// ConfirmLocalDelete is called by Down with the planned local deletes,
 	// which are permanent, before anything changes. An error aborts.
 	ConfirmLocalDelete func(deletes []Action) error
@@ -76,10 +76,7 @@ func (r *Result) record(a Action) {
 
 // progress returns the configured progress callbacks, or no-ops.
 func (o Options) progress(label string, total int64) (remote.ProgressFunc, func()) {
-	if o.Progress == nil {
-		return nil, func() {}
-	}
-	return o.Progress(label, total)
+	return o.Progress.Start(label, total)
 }
 
 // apply runs plan through do, or only reports it in a dry run.

@@ -30,7 +30,7 @@ tasks:
       - sh: test -n "$MEGA_EMAIL" && test -n "$MEGA_PASSWORD"
         msg: "set MEGA_EMAIL and MEGA_PASSWORD"
     cmds:
-      - go test -count=1 -run Live -v ./pkg/remote/ ./pkg/mirror/
+      - go test -count=1 -run Live -v ./pkg/remote/ ./pkg/mirror/ ./pkg/transfer/
 
   lint:
     desc: Run gofmt and go vet

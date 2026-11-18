@@ -11,6 +11,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/auth"
 	"github.com/manzanit0/mega-cli/pkg/remote"
 	"github.com/manzanit0/mega-cli/pkg/session"
 )
@@ -86,18 +87,15 @@ func runLogin(email, mfa string) error {
 		return err
 	}
 	mfa, _ = valueOr(mfa, "MEGA_MFA", func() (string, error) { return "", nil })
-	c, err := remote.Login(email, pass, mfa, options())
+	_, err = auth.Login(email, pass, mfa, options())
 	if errors.Is(err, remote.ErrMFARequired) && mfa == "" {
 		if mfa, err = prompt("2FA code: "); err != nil {
 			return err
 		}
-		c, err = remote.Login(email, pass, mfa, options())
+		_, err = auth.Login(email, pass, mfa, options())
 	}
 	if err != nil {
 		return fmt.Errorf("login failed: %w", err)
-	}
-	if err := session.Save(session.New(email, c.SessionID(), c.MasterKey())); err != nil {
-		return err
 	}
 	logf("Logged in as %s (session stored in %s)", email, session.Location())
 	return nil
@@ -125,38 +123,20 @@ MEGA web app).`,
 
 // runLogout revokes the stored session server-side, then deletes it.
 func runLogout(local bool) error {
-	s, err := session.Load()
-	if errors.Is(err, session.ErrNoSession) {
+	email, err := auth.Logout(local)
+	if errors.Is(err, auth.ErrNotLoggedIn) {
 		logf("Not logged in")
 		return nil
 	}
-	if err != nil && !local {
-		return fmt.Errorf("%w (use --local to discard it)", err)
-	}
-	if !local {
-		if err := remote.Logout(s.ID); err != nil {
-			return fmt.Errorf("%w; local session kept, retry or use --local", err)
-		}
-	}
-	if err := session.Delete(); err != nil {
-		return err
+	if err != nil {
+		return fmt.Errorf("%w; local session kept, retry or use --local", err)
 	}
 	if local {
 		logf("Removed local session (still valid on MEGA until revoked)")
 		return nil
 	}
-	logf("Logged out of %s", s.Email)
+	logf("Logged out of %s", email)
 	return nil
-}
-
-// account is the output of `mega whoami`.
-type account struct {
-	// Email is the account email.
-	Email string `json:"email"`
-	// Name is the account display name.
-	Name string `json:"name"`
-	// Handle is the MEGA user handle.
-	Handle string `json:"handle"`
 }
 
 // newWhoamiCmd builds `mega whoami`.
@@ -170,11 +150,10 @@ func newWhoamiCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			u, err := c.User()
+			a, err := c.Account()
 			if err != nil {
 				return err
 			}
-			a := account{Email: u.Email, Name: u.Name, Handle: u.U}
 			if flags.json {
 				return ui.JSON(out, a)
 			}
@@ -182,16 +161,6 @@ func newWhoamiCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// quota is the output of `mega quota`.
-type quota struct {
-	// Used is the number of bytes stored.
-	Used uint64 `json:"used"`
-	// Total is the account capacity in bytes.
-	Total uint64 `json:"total"`
-	// Free is the remaining capacity in bytes.
-	Free uint64 `json:"free"`
 }
 
 // newQuotaCmd builds `mega quota`.
@@ -205,23 +174,15 @@ func newQuotaCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			r, err := c.Quota()
+			q, err := c.Storage()
 			if err != nil {
 				return err
-			}
-			q := quota{Used: r.Cstrg, Total: r.Mstrg}
-			if q.Total > q.Used {
-				q.Free = q.Total - q.Used
 			}
 			if flags.json {
 				return ui.JSON(out, q)
 			}
-			pct := 0.0
-			if q.Total > 0 {
-				pct = float64(q.Used) * 100 / float64(q.Total)
-			}
 			fmt.Fprintf(out, "%s / %s used (%.1f%%), %s free\n",
-				ui.Bytes(int64(q.Used)), ui.Bytes(int64(q.Total)), pct,
+				ui.Bytes(int64(q.Used)), ui.Bytes(int64(q.Total)), q.Percent(),
 				ui.Bytes(int64(q.Free)))
 			return nil
 		},

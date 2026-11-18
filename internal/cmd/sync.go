@@ -47,10 +47,7 @@ func (f *syncFlags) options() mirror.Options {
 		OnSkip: func(p string) {
 			logf("skipping non-regular file %s", p)
 		},
-		Progress: func(label string, total int64) (remote.ProgressFunc, func()) {
-			pb := progress(label, total)
-			return pb.Add, pb.Done
-		},
+		Progress:           progressFactory,
 		ConfirmLocalDelete: f.confirmLocalDelete,
 	}
 }

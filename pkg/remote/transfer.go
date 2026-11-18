@@ -12,6 +12,19 @@ import (
 // ProgressFunc receives the number of bytes transferred since the last call.
 type ProgressFunc func(n int)
 
+// ProgressFactory starts progress reporting for one transfer. It returns a
+// counter to feed with transferred bytes and a callback to call when the
+// transfer ends.
+type ProgressFactory func(label string, total int64) (ProgressFunc, func())
+
+// Start begins reporting; a nil factory yields a nil counter and a no-op.
+func (f ProgressFactory) Start(label string, total int64) (ProgressFunc, func()) {
+	if f == nil {
+		return nil, func() {}
+	}
+	return f(label, total)
+}
+
 // drain forwards progress channel updates to fn until the channel closes.
 func drain(ch chan int, fn ProgressFunc, done chan struct{}) {
 	for n := range ch {

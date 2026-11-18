@@ -35,7 +35,7 @@ func newTrashLsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			entries, err := listing(c, remote.Parse("trash:"), false)
+			entries, err := c.List(remote.Parse("trash:"), false)
 			if err != nil {
 				return err
 			}
@@ -61,23 +61,22 @@ func newTrashEmptyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nodes, err := c.Children(remote.Parse("trash:"))
+			items, err := c.List(remote.Parse("trash:"), false)
 			if err != nil {
 				return err
 			}
-			if len(nodes) == 0 {
+			if len(items) == 0 {
 				logf("Trash is already empty")
 				return nil
 			}
-			if !yes && !confirm(fmt.Sprintf("Permanently delete %d item(s)?", len(nodes))) {
+			if !yes && !confirm(fmt.Sprintf("Permanently delete %d item(s)?", len(items))) {
 				return fmt.Errorf("aborted")
 			}
-			for _, n := range nodes {
-				if err := c.Delete(n, true); err != nil {
-					return fmt.Errorf("%s: %w", n.GetName(), err)
-				}
+			n, err := c.EmptyTrash()
+			if err != nil {
+				return err
 			}
-			logf("Deleted %d item(s)", len(nodes))
+			logf("Deleted %d item(s)", n)
 			return nil
 		},
 	}
@@ -111,7 +110,7 @@ the "shared:" prefix, e.g. "mega ls shared:/Team".`,
 			if err != nil {
 				return err
 			}
-			entries, err := listing(c, remote.Parse("shared:"), false)
+			entries, err := c.List(remote.Parse("shared:"), false)
 			if err != nil {
 				return err
 			}

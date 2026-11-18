@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	mega "github.com/t3rm1n4l/go-mega"
 
 	"github.com/manzanit0/mega-cli/internal/ui"
 	"github.com/manzanit0/mega-cli/pkg/remote"
@@ -62,78 +61,11 @@ source is moved and renamed to dst. Restore from the trash with
 	}
 }
 
-// runMv moves each source into or onto dst. Paths are resolved first so
-// names containing "/" keep their real name.
+// runMv moves each source into or onto dst.
 func runMv(c *remote.Client, srcs []remote.Path, dst remote.Path) error {
-	for i, s := range srcs {
-		p, _, err := c.Resolve(s)
-		if err != nil {
-			return err
-		}
-		srcs[i] = p
-	}
-	dst, d, err := c.Resolve(dst)
-	if err != nil && !isNotFound(err) {
-		return err
-	}
-	if d != nil && remote.IsDir(d) {
-		for _, s := range srcs {
-			if err := moveTo(c, s, d, dst.Join(s.Base())); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if d != nil {
-		return fmt.Errorf("%s: already exists", dst)
-	}
-	if len(srcs) > 1 {
-		return fmt.Errorf("%s: no such folder", dst)
-	}
-	parent, err := c.Lookup(dst.Dir())
-	if err != nil {
-		return err
-	}
-	return moveTo(c, srcs[0], parent, dst)
-}
-
-// moveTo moves src into the folder parent under target's name.
-func moveTo(c *remote.Client, src remote.Path, parent *mega.Node, target remote.Path) error {
-	if src.IsRoot() {
-		return fmt.Errorf("cannot move a root folder")
-	}
-	n, err := c.Lookup(src)
-	if err != nil {
-		return err
-	}
-	if !remote.IsDir(parent) {
-		return fmt.Errorf("%s: %w", target.Dir(), remote.ErrNotDir)
-	}
-	clash, err := c.Child(parent, target.Base())
-	if err != nil {
-		return err
-	}
-	if clash != nil && clash != n {
-		return fmt.Errorf("%s: already exists", target)
-	}
-	if src.Dir().String() != target.Dir().String() {
-		if err := c.Move(n, parent); err != nil {
-			return err
-		}
-	}
-	if src.Base() != target.Base() {
-		if err := c.Rename(n, target.Base()); err != nil {
-			return err
-		}
-	}
-	logf("%s -> %s", src, target)
-	return nil
-}
-
-// isNotFound reports whether err is a remote.NotFoundError.
-func isNotFound(err error) bool {
-	var nf *remote.NotFoundError
-	return errors.As(err, &nf)
+	return c.MovePaths(srcs, dst, func(src, dst remote.Path) {
+		logf("%s -> %s", src, dst)
+	})
 }
 
 // newRmCmd builds `mega rm`.
@@ -152,7 +84,8 @@ With --permanent, items are destroyed immediately and cannot be recovered.`,
 				return err
 			}
 			for _, p := range pathArgs(args) {
-				if err := remove(c, p, recursive, permanent, force); err != nil {
+				o := remote.RemoveOptions{Recursive: recursive, Permanent: permanent, IgnoreMissing: force}
+				if err := remove(c, p, o); err != nil {
 					return err
 				}
 			}
@@ -166,29 +99,17 @@ With --permanent, items are destroyed immediately and cannot be recovered.`,
 }
 
 // remove deletes a single path according to the rm flags.
-func remove(c *remote.Client, p remote.Path, recursive, permanent, force bool) error {
-	if p.IsRoot() {
-		return fmt.Errorf("refusing to remove %s", p)
+func remove(c *remote.Client, p remote.Path, o remote.RemoveOptions) error {
+	r, err := c.Remove(p, o)
+	if errors.Is(err, remote.ErrIsDir) {
+		return fmt.Errorf("%w (use -r)", err)
 	}
-	n, err := c.Lookup(p)
-	if force && isNotFound(err) {
-		return nil
-	}
-	if err != nil {
+	switch {
+	case err != nil:
 		return err
-	}
-	if remote.IsDir(n) && !recursive {
-		return fmt.Errorf("%s: is a folder (use -r)", p)
-	}
-	if p.NS == remote.Trash {
-		permanent = true
-	}
-	if err := c.Delete(n, permanent); err != nil {
-		return fmt.Errorf("%s: %w", p, err)
-	}
-	if permanent {
+	case r.Destroyed:
 		logf("destroyed %s", p)
-	} else {
+	case r.Removed:
 		logf("trashed %s", p)
 	}
 	return nil
@@ -219,13 +140,9 @@ anyone with the link can open it; use --no-key to share the key separately.`,
 			}
 			var links []publicLink
 			for _, p := range pathArgs(args) {
-				n, err := c.Lookup(p)
+				u, err := c.PublicLink(p, !noKey)
 				if err != nil {
 					return err
-				}
-				u, err := c.Link(n, !noKey)
-				if err != nil {
-					return fmt.Errorf("%s: %w", p, err)
 				}
 				links = append(links, publicLink{Path: p.String(), URL: u})
 			}

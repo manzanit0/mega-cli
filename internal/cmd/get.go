@@ -1,31 +1,17 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	mega "github.com/t3rm1n4l/go-mega"
 
 	"github.com/manzanit0/mega-cli/internal/ui"
-	"github.com/manzanit0/mega-cli/pkg/remote"
+	"github.com/manzanit0/mega-cli/pkg/transfer"
 )
 
-// transferStats tallies a batch of transfers.
-type transferStats struct {
-	// Files is the number of files transferred.
-	Files int `json:"files"`
-	// Skipped is the number of files left untouched.
-	Skipped int `json:"skipped"`
-	// Bytes is the number of bytes transferred.
-	Bytes int64 `json:"bytes"`
-}
-
-// report prints the batch summary.
-func (s transferStats) report(verb string) error {
+// reportStats prints the batch summary.
+func reportStats(s transfer.Stats, verb string) error {
 	if flags.json {
 		return ui.JSON(out, s)
 	}
@@ -35,63 +21,6 @@ func (s transferStats) report(verb string) error {
 	}
 	logf("%s", msg)
 	return nil
-}
-
-// isLocalDir reports whether p exists locally and is a directory.
-func isLocalDir(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
-}
-
-// sameSize reports whether a local file exists with the given size.
-func sameSize(p string, size int64) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.Mode().IsRegular() && fi.Size() == size
-}
-
-// getter downloads remote nodes to the local filesystem.
-type getter struct {
-	// c is the MEGA client.
-	c *remote.Client
-	// skipExisting skips files already present with the same size.
-	skipExisting bool
-	// stats accumulates results.
-	stats transferStats
-}
-
-// file downloads a single remote file to dst.
-func (g *getter) file(p remote.Path, n *mega.Node, dst string) error {
-	if g.skipExisting && sameSize(dst, n.GetSize()) {
-		g.stats.Skipped++
-		return nil
-	}
-	pb := progress(p.String(), n.GetSize())
-	err := g.c.Download(n, dst, pb.Add)
-	pb.Done()
-	if err != nil {
-		return fmt.Errorf("%s: %w", p, err)
-	}
-	logf("%s -> %s", p, dst)
-	g.stats.Files++
-	g.stats.Bytes += n.GetSize()
-	return nil
-}
-
-// tree downloads the folder at p into the local directory dst.
-func (g *getter) tree(p remote.Path, dst string) error {
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	return g.c.Walk(p, func(cp remote.Path, n *mega.Node) error {
-		target := dst
-		for _, part := range cp.Parts[len(p.Parts):] {
-			target = filepath.Join(target, remote.LocalName(part))
-		}
-		if remote.IsDir(n) {
-			return os.MkdirAll(target, 0o755)
-		}
-		return g.file(cp, n, target)
-	})
 }
 
 // newGetCmd builds `mega get`.
@@ -118,15 +47,7 @@ Files are written atomically and verified against MEGA's MAC.`,
 			if local == "-" {
 				return runCat(args[:1])
 			}
-			c, err := connect()
-			if err != nil {
-				return err
-			}
-			g := &getter{c: c, skipExisting: skip}
-			if err := g.run(remote.Parse(args[0]), local); err != nil {
-				return err
-			}
-			return g.stats.report("Downloaded")
+			return runDownload(args[:1], local, skip)
 		},
 	}
 	cmd.Flags().BoolVar(&skip, "skip-existing", false,
@@ -134,27 +55,23 @@ Files are written atomically and verified against MEGA's MAC.`,
 	return cmd
 }
 
-// run resolves the destination and downloads p.
-func (g *getter) run(p remote.Path, local string) error {
-	p, n, err := g.c.Resolve(p)
-	if errors.Is(err, remote.ErrSharedRoot) {
-		return fmt.Errorf("pick a specific shared folder, see `mega shares`")
-	}
+// runDownload downloads the MEGA paths in srcs to local and reports the
+// result.
+func runDownload(srcs []string, local string, skip bool) error {
+	c, err := connect()
 	if err != nil {
 		return err
 	}
-	name := remote.LocalName(n.GetName())
-	if p.IsRoot() {
-		name = "MEGA"
+	o := transfer.Options{
+		SkipExisting: skip,
+		Progress:     progressFactory,
+		OnFile:       func(src, dst string) { logf("%s -> %s", src, dst) },
 	}
-	dst := local
-	if isLocalDir(local) {
-		dst = filepath.Join(local, name)
+	stats, err := transfer.Download(c, pathArgs(srcs), local, o)
+	if err != nil {
+		return err
 	}
-	if remote.IsDir(n) {
-		return g.tree(p, dst)
-	}
-	return g.file(p, n, dst)
+	return reportStats(stats, "Downloaded")
 }
 
 // newCatCmd builds `mega cat`.
@@ -175,17 +92,9 @@ func runCat(args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, a := range args {
-		p := remote.Parse(a)
-		n, err := c.Lookup(p)
-		if err != nil {
+	for _, p := range pathArgs(args) {
+		if err := c.Cat(p, os.Stdout, nil); err != nil {
 			return err
-		}
-		if remote.IsDir(n) {
-			return &fs.PathError{Op: "cat", Path: p.String(), Err: errors.New("is a folder")}
-		}
-		if err := c.Stream(n, os.Stdout, nil); err != nil {
-			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
 	return nil
