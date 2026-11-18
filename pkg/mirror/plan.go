@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	mega "github.com/t3rm1n4l/go-mega"
+	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
 // Entry is a file or folder in a Tree.
@@ -20,8 +20,8 @@ type Entry struct {
 	Size int64
 	// MTime is the local modification time, or the remote node timestamp.
 	MTime time.Time
-	// Node is the remote node, for remote trees.
-	Node *mega.Node
+	// Remote is the entry's remote path, for remote trees.
+	Remote remote.Path
 	// Path is the absolute local path, for local trees.
 	Path string
 }

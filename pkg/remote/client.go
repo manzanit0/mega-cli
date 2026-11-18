@@ -12,6 +12,16 @@ import (
 // ErrMFARequired is returned when the account needs a 2FA code.
 var ErrMFARequired = mega.EMFAREQUIRED
 
+// ErrSessionExpired is returned when MEGA no longer accepts the session,
+// because it expired or was revoked. Log in again.
+var ErrSessionExpired = mega.ESID
+
+// IsQuotaExceeded reports whether err means the storage or transfer quota
+// is, or is about to be, exceeded.
+func IsQuotaExceeded(err error) bool {
+	return errors.Is(err, mega.EOVERQUOTA) || errors.Is(err, mega.EGOINGOVERQUOTA)
+}
+
 // ErrSharedRoot is returned when an operation targets the virtual
 // "shared:" root, which is not a real folder.
 var ErrSharedRoot = errors.New("shared: is a virtual folder")
@@ -88,19 +98,14 @@ func (c *Client) SetWorkers(n int) error {
 	return c.m.SetUploadWorkers(n)
 }
 
-// User returns account details.
-func (c *Client) User() (mega.UserResp, error) {
+// user returns account details.
+func (c *Client) user() (mega.UserResp, error) {
 	return c.m.GetUser()
 }
 
-// Quota returns storage usage.
-func (c *Client) Quota() (mega.QuotaResp, error) {
+// quota returns storage usage.
+func (c *Client) quota() (mega.QuotaResp, error) {
 	return c.m.GetQuota()
-}
-
-// SharedRoots returns the folders other users shared with the account.
-func (c *Client) SharedRoots() []*mega.Node {
-	return sortNodes(c.m.FS.GetSharedRoots())
 }
 
 // rootChildren returns the top-level nodes of a namespace.
@@ -127,9 +132,9 @@ func (c *Client) rootNode(ns Namespace) (*mega.Node, error) {
 	}
 }
 
-// Lookup resolves a path to its node. See Resolve for names with "/".
-func (c *Client) Lookup(p Path) (*mega.Node, error) {
-	_, n, err := c.Resolve(p)
+// lookup resolves a path to its node. See Resolve for names with "/".
+func (c *Client) lookup(p Path) (*mega.Node, error) {
+	_, n, err := c.resolve(p)
 	return n, err
 }
 
@@ -143,8 +148,8 @@ func findChild(nodes []*mega.Node, name string) *mega.Node {
 	return nil
 }
 
-// Child returns the named child of a folder, or nil.
-func (c *Client) Child(parent *mega.Node, name string) (*mega.Node, error) {
+// child returns the named child of a folder, or nil.
+func (c *Client) child(parent *mega.Node, name string) (*mega.Node, error) {
 	children, err := c.m.FS.GetChildren(parent)
 	if err != nil {
 		return nil, err
@@ -152,17 +157,17 @@ func (c *Client) Child(parent *mega.Node, name string) (*mega.Node, error) {
 	return findChild(children, name), nil
 }
 
-// Children lists a folder's children sorted by name.
-func (c *Client) Children(p Path) ([]*mega.Node, error) {
+// children lists a folder's children sorted by name.
+func (c *Client) children(p Path) ([]*mega.Node, error) {
 	if p.IsRoot() {
 		nodes, err := c.rootChildren(p.NS)
 		return sortNodes(nodes), err
 	}
-	n, err := c.Lookup(p)
+	n, err := c.lookup(p)
 	if err != nil {
 		return nil, err
 	}
-	if !IsDir(n) {
+	if !isDir(n) {
 		return nil, fmt.Errorf("%s: %w", p, ErrNotDir)
 	}
 	nodes, err := c.m.FS.GetChildren(n)
@@ -177,12 +182,12 @@ func sortNodes(nodes []*mega.Node) []*mega.Node {
 	return nodes
 }
 
-// WalkFunc is called for every node visited by Walk.
-type WalkFunc func(p Path, n *mega.Node) error
+// walkFunc is called for every node visited by walk.
+type walkFunc func(p Path, n *mega.Node) error
 
-// Walk visits every node below p, depth first, excluding p itself.
-func (c *Client) Walk(p Path, fn WalkFunc) error {
-	children, err := c.Children(p)
+// walk visits every node below p, depth first, excluding p itself.
+func (c *Client) walk(p Path, fn walkFunc) error {
+	children, err := c.children(p)
 	if err != nil {
 		return err
 	}
@@ -191,8 +196,8 @@ func (c *Client) Walk(p Path, fn WalkFunc) error {
 		if err := fn(child, n); err != nil {
 			return err
 		}
-		if IsDir(n) {
-			if err := c.Walk(child, fn); err != nil {
+		if isDir(n) {
+			if err := c.walk(child, fn); err != nil {
 				return err
 			}
 		}
@@ -200,38 +205,38 @@ func (c *Client) Walk(p Path, fn WalkFunc) error {
 	return nil
 }
 
-// Mkdir creates a folder. With parents set, missing ancestors are created
+// mkdir creates a folder. With parents set, missing ancestors are created
 // and an existing folder is not an error.
-func (c *Client) Mkdir(p Path, parents bool) (*mega.Node, error) {
+func (c *Client) mkdir(p Path, parents bool) (*mega.Node, error) {
 	if p.IsRoot() {
 		if parents {
 			return c.rootNode(p.NS)
 		}
 		return nil, fmt.Errorf("%s: already exists", p)
 	}
-	if n, err := c.Lookup(p); err == nil {
-		if parents && IsDir(n) {
+	if n, err := c.lookup(p); err == nil {
+		if parents && isDir(n) {
 			return n, nil
 		}
 		return nil, fmt.Errorf("%s: already exists", p)
 	}
-	parent, err := c.Lookup(p.Dir())
+	parent, err := c.lookup(p.Dir())
 	var nf *NotFoundError
 	if errors.As(err, &nf) && parents {
-		parent, err = c.Mkdir(p.Dir(), true)
+		parent, err = c.mkdir(p.Dir(), true)
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !IsDir(parent) {
+	if !isDir(parent) {
 		return nil, fmt.Errorf("%s: %w", p.Dir(), ErrNotDir)
 	}
-	existing, err := c.Child(parent, p.Base())
+	existing, err := c.child(parent, p.Base())
 	if err != nil {
 		return nil, err
 	}
 	if existing != nil {
-		if parents && IsDir(existing) {
+		if parents && isDir(existing) {
 			return existing, nil
 		}
 		return nil, fmt.Errorf("%s: already exists", p)
@@ -240,39 +245,39 @@ func (c *Client) Mkdir(p Path, parents bool) (*mega.Node, error) {
 	return c.m.CreateDir(p.Base(), parent)
 }
 
-// MkdirIn creates a folder named name directly inside parent.
-func (c *Client) MkdirIn(parent *mega.Node, name string) (*mega.Node, error) {
+// mkdirIn creates a folder named name directly inside parent.
+func (c *Client) mkdirIn(parent *mega.Node, name string) (*mega.Node, error) {
 	c.invalidate()
 	return c.m.CreateDir(name, parent)
 }
 
-// Move moves src into the folder parent.
-func (c *Client) Move(src, parent *mega.Node) error {
+// move moves src into the folder parent.
+func (c *Client) move(src, parent *mega.Node) error {
 	c.invalidate()
 	return c.m.Move(src, parent)
 }
 
-// Rename renames a node in place.
-func (c *Client) Rename(n *mega.Node, name string) error {
+// rename renames a node in place.
+func (c *Client) rename(n *mega.Node, name string) error {
 	return c.m.Rename(n, name)
 }
 
-// Delete moves a node to the trash, or destroys it when permanent is set.
-func (c *Client) Delete(n *mega.Node, permanent bool) error {
+// deleteNode moves a node to the trash, or destroys it when permanent is set.
+func (c *Client) deleteNode(n *mega.Node, permanent bool) error {
 	c.invalidate()
 	return c.m.Delete(n, permanent)
 }
 
-// Link exports a public link for a node.
-func (c *Client) Link(n *mega.Node, includeKey bool) (string, error) {
+// link exports a public link for a node.
+func (c *Client) link(n *mega.Node, includeKey bool) (string, error) {
 	return c.m.Link(n, includeKey)
 }
 
-// Size returns a file's size, or the total size of every file below a
+// size returns a file's size, or the total size of every file below a
 // folder. It is computed from the in-memory tree, so it makes no API calls,
 // and folder totals are cached until the next mutation.
-func (c *Client) Size(n *mega.Node) int64 {
-	if !IsDir(n) {
+func (c *Client) size(n *mega.Node) int64 {
+	if !isDir(n) {
 		return n.GetSize()
 	}
 	h := n.GetHash()
@@ -282,7 +287,7 @@ func (c *Client) Size(n *mega.Node) int64 {
 	children, _ := c.m.FS.GetChildren(n)
 	var total int64
 	for _, child := range children {
-		total += c.Size(child)
+		total += c.size(child)
 	}
 	if c.sizes == nil {
 		c.sizes = make(map[string]int64)
@@ -296,8 +301,8 @@ func (c *Client) invalidate() {
 	c.sizes = nil
 }
 
-// IsDir reports whether a node can contain children.
-func IsDir(n *mega.Node) bool {
+// isDir reports whether a node can contain children.
+func isDir(n *mega.Node) bool {
 	switch n.GetType() {
 	case mega.FOLDER, mega.ROOT, mega.INBOX, mega.TRASH:
 		return true

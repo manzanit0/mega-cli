@@ -2,6 +2,7 @@ package remote
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,25 +30,23 @@ func liveClient(t *testing.T) *Client {
 func TestLiveRoundTrip(t *testing.T) {
 	c := liveClient(t)
 	base := Parse(fmt.Sprintf("/mega-cli-test-%d", time.Now().UnixNano()))
-	dir, err := c.Mkdir(base.Join("sub"), true)
-	if err != nil {
+	sub := base.Join("sub")
+	if _, err := c.Mkdir(sub, true); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	t.Cleanup(func() {
-		if n, err := c.Lookup(base); err == nil {
-			_ = c.Delete(n, true)
-		}
+		_, _ = c.Remove(base, RemoveOptions{Recursive: true, Permanent: true})
 	})
 
-	top, err := c.Lookup(base)
+	top, err := c.lookup(base)
 	if err != nil {
 		t.Fatalf("lookup base: %v", err)
 	}
 	if _, err := c.m.CreateDir("2014/2015", top); err != nil {
 		t.Fatalf("create slash folder: %v", err)
 	}
-	if p, n, err := c.Resolve(base.Join("2014").Join("2015")); err != nil ||
-		n.GetName() != "2014/2015" || p.Base() != "2014/2015" {
+	if p, e, err := c.Resolve(base.Join("2014").Join("2015")); err != nil ||
+		e.Name != "2014/2015" || p.Base() != "2014/2015" {
 		t.Fatalf("resolve slash folder: %v %v", p, err)
 	}
 
@@ -57,51 +56,50 @@ func TestLiveRoundTrip(t *testing.T) {
 	if err := os.WriteFile(src, want, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Upload(src, dir, "a.txt", false, nil); err != nil {
+	file := sub.Join("a.txt")
+	if _, err := c.Upload(src, file, false, nil); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
-	if _, err := c.Upload(src, dir, "a.txt", false, nil); err == nil {
-		t.Fatalf("expected upload over existing file to fail without replace")
+	if _, err := c.Upload(src, file, false, nil); !errors.Is(err, ErrExists) {
+		t.Fatalf("upload over existing file = %v, want ErrExists", err)
 	}
 
-	n, err := c.Lookup(base.Join("sub").Join("a.txt"))
-	if err != nil {
-		t.Fatalf("lookup: %v", err)
+	e, err := c.Stat(file)
+	if err != nil || e.Size != int64(len(want)) || e.IsDir() {
+		t.Fatalf("stat: %+v %v", e, err)
 	}
-	if c.Size(top) != int64(len(want)) {
-		t.Fatalf("folder size = %d, want %d", c.Size(top), len(want))
+	if top, err := c.Stat(base); err != nil || top.Size != int64(len(want)) {
+		t.Fatalf("folder size: %+v %v", top, err)
 	}
 	dst := filepath.Join(tmp, "out.txt")
-	if err := c.Download(n, dst, nil); err != nil {
+	if err := c.Download(file, dst, nil); err != nil {
 		t.Fatalf("download: %v", err)
 	}
 	if got, _ := os.ReadFile(dst); !bytes.Equal(got, want) {
 		t.Fatalf("downloaded content mismatch")
 	}
 	var buf bytes.Buffer
-	if err := c.Stream(n, &buf, nil); err != nil || !bytes.Equal(buf.Bytes(), want) {
-		t.Fatalf("stream mismatch: %v", err)
+	if err := c.Cat(file, &buf, nil); err != nil || !bytes.Equal(buf.Bytes(), want) {
+		t.Fatalf("cat mismatch: %v", err)
 	}
 
-	if err := c.Rename(n, "b.txt"); err != nil {
-		t.Fatalf("rename: %v", err)
-	}
-	root, _ := c.Lookup(base)
-	if err := c.Move(n, root); err != nil {
+	moved := base.Join("b.txt")
+	if err := c.MovePaths([]Path{file}, moved, nil); err != nil {
 		t.Fatalf("move: %v", err)
 	}
-	if _, err := c.Lookup(base.Join("b.txt")); err != nil {
-		t.Fatalf("lookup after move: %v", err)
+	if _, err := c.Stat(moved); err != nil {
+		t.Fatalf("stat after move: %v", err)
 	}
-	link, err := c.Link(n, true)
+	link, err := c.PublicLink(moved, true)
 	if err != nil || !strings.Contains(link, "#!") {
 		t.Fatalf("link: %q %v", link, err)
 	}
-	if err := c.Delete(n, false); err != nil {
-		t.Fatalf("trash: %v", err)
+	res, err := c.Remove(moved, RemoveOptions{})
+	if err != nil || !res.Removed || res.Destroyed {
+		t.Fatalf("trash: %+v %v", res, err)
 	}
-	if _, err := c.Lookup(base.Join("b.txt")); err == nil {
-		t.Fatalf("file still present after trashing")
+	if _, err := c.Stat(moved); !IsNotFound(err) {
+		t.Fatalf("file still present after trashing: %v", err)
 	}
 }
 

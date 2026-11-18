@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	mega "github.com/t3rm1n4l/go-mega"
-
 	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
@@ -27,7 +25,7 @@ func excluded(rel string, patterns []string) bool {
 // they line up with a LocalTree of a downloaded copy.
 func RemoteTree(c *remote.Client, root remote.Path, exclude []string) (Tree, error) {
 	t := Tree{}
-	err := c.Walk(root, func(p remote.Path, n *mega.Node) error {
+	err := c.Walk(root, func(p remote.Path, e remote.Entry) error {
 		parts := p.Parts[len(root.Parts):]
 		names := make([]string, len(parts))
 		for i, part := range parts {
@@ -37,12 +35,11 @@ func RemoteTree(c *remote.Client, root remote.Path, exclude []string) (Tree, err
 		if excluded(rel, exclude) {
 			return nil
 		}
-		t[rel] = Entry{
-			Dir:   remote.IsDir(n),
-			Size:  n.GetSize(),
-			MTime: n.GetTimeStamp(),
-			Node:  n,
+		ent := Entry{Dir: e.IsDir(), MTime: e.Modified, Remote: p}
+		if !ent.Dir {
+			ent.Size = e.Size
 		}
+		t[rel] = ent
 		return nil
 	})
 	return t, err

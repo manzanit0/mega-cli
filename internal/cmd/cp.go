@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -57,30 +58,22 @@ func checkCpArgs(srcs []string, dst string) error {
 	return nil
 }
 
+// isLocalDir reports whether p exists locally and is a directory.
+func isLocalDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
 // runCp validates the arguments and uploads or downloads accordingly.
 func runCp(srcs []string, dst string, force, skip bool) error {
 	if err := checkCpArgs(srcs, dst); err != nil {
 		return err
 	}
-	if dst == "-" {
+	switch {
+	case dst == "-":
 		return runCat(srcs)
+	case remote.IsRemote(dst):
+		return runUpload(srcs, dst, force, skip)
 	}
-	c, err := connect()
-	if err != nil {
-		return err
-	}
-	if remote.IsRemote(dst) {
-		u := &putter{c: c, force: force, skipExisting: skip}
-		if err := u.run(srcs, dst); err != nil {
-			return err
-		}
-		return u.stats.report("Uploaded")
-	}
-	g := &getter{c: c, skipExisting: skip}
-	for _, s := range srcs {
-		if err := g.run(remote.Parse(s), dst); err != nil {
-			return err
-		}
-	}
-	return g.stats.report("Downloaded")
+	return runDownload(srcs, dst, skip)
 }

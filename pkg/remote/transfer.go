@@ -12,6 +12,19 @@ import (
 // ProgressFunc receives the number of bytes transferred since the last call.
 type ProgressFunc func(n int)
 
+// ProgressFactory starts progress reporting for one transfer. It returns a
+// counter to feed with transferred bytes and a callback to call when the
+// transfer ends.
+type ProgressFactory func(label string, total int64) (ProgressFunc, func())
+
+// Start begins reporting; a nil factory yields a nil counter and a no-op.
+func (f ProgressFactory) Start(label string, total int64) (ProgressFunc, func()) {
+	if f == nil {
+		return nil, func() {}
+	}
+	return f(label, total)
+}
+
 // drain forwards progress channel updates to fn until the channel closes.
 func drain(ch chan int, fn ProgressFunc, done chan struct{}) {
 	for n := range ch {
@@ -22,9 +35,9 @@ func drain(ch chan int, fn ProgressFunc, done chan struct{}) {
 	close(done)
 }
 
-// Download writes a remote file to dst atomically, via a temp file in the
+// downloadNode writes a remote file to dst atomically, via a temp file in the
 // destination folder that is renamed once the MAC has been verified.
-func (c *Client) Download(n *mega.Node, dst string, fn ProgressFunc) error {
+func (c *Client) downloadNode(n *mega.Node, dst string, fn ProgressFunc) error {
 	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*.part")
 	if err != nil {
 		return err
@@ -48,9 +61,9 @@ func (c *Client) Download(n *mega.Node, dst string, fn ProgressFunc) error {
 	return os.Rename(name, dst)
 }
 
-// Stream writes a remote file to w sequentially. The MAC is verified at
+// stream writes a remote file to w sequentially. The MAC is verified at
 // the end, so a corrupted stream is reported only after data was written.
-func (c *Client) Stream(n *mega.Node, w io.Writer, fn ProgressFunc) error {
+func (c *Client) stream(n *mega.Node, w io.Writer, fn ProgressFunc) error {
 	d, err := c.m.NewDownload(n)
 	if err != nil {
 		return err
@@ -70,20 +83,20 @@ func (c *Client) Stream(n *mega.Node, w io.Writer, fn ProgressFunc) error {
 	return d.Finish()
 }
 
-// Upload stores a local file as name inside parent. When replace is set
+// uploadNode stores a local file as name inside parent. When replace is set
 // and a file with the same name exists, it is moved to the trash after the
 // new upload succeeds.
-func (c *Client) Upload(src string, parent *mega.Node, name string, replace bool,
+func (c *Client) uploadNode(src string, parent *mega.Node, name string, replace bool,
 	fn ProgressFunc) (*mega.Node, error) {
-	existing, err := c.Child(parent, name)
+	existing, err := c.child(parent, name)
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil && IsDir(existing) {
-		return nil, fmt.Errorf("%s: a folder with that name exists", name)
+	if existing != nil && isDir(existing) {
+		return nil, fmt.Errorf("%s: %w", name, ErrIsDir)
 	}
 	if existing != nil && !replace {
-		return nil, fmt.Errorf("%s: already exists (use --force to replace)", name)
+		return nil, fmt.Errorf("%s: %w", name, ErrExists)
 	}
 	c.invalidate()
 	ch := make(chan int)
@@ -95,7 +108,7 @@ func (c *Client) Upload(src string, parent *mega.Node, name string, replace bool
 		return nil, err
 	}
 	if existing != nil {
-		if err := c.Delete(existing, false); err != nil {
+		if err := c.deleteNode(existing, false); err != nil {
 			return node, fmt.Errorf("uploaded, but trashing old %s failed: %w", name, err)
 		}
 	}

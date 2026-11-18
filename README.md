@@ -79,11 +79,29 @@ MEGA_EMAIL=... MEGA_PASSWORD=... task test:live
 
 ## Library
 
-The building blocks behind the CLI are importable from other Go projects:
+Everything the CLI does is available to other Go projects; the `mega`
+command is a thin layer of flags and output on top of these packages:
 
-- `github.com/manzanit0/mega-cli/pkg/remote`: client, paths, transfers.
-- `github.com/manzanit0/mega-cli/pkg/mirror`: sync planning and execution.
-- `github.com/manzanit0/mega-cli/pkg/session`: session storage.
+- `pkg/auth`: log in, store the session, reconnect, log out.
+- `pkg/remote`: client, paths, `List`/`Stat`/`Find`/`DiskUsage`, `Mkdir`,
+  `MovePaths`, `Remove`, `EmptyTrash`, `PublicLink`, `Cat`, `Account`,
+  `Storage`.
+- `pkg/transfer`: recursive `Upload`, `UploadReader` and `Download` with
+  progress hooks.
+- `pkg/mirror`: sync planning and execution.
+- `pkg/session`: session storage (keychain or file).
+
+```go
+c, err := auth.Connect(remote.Options{})
+if err != nil {
+    return err
+}
+_, err = transfer.Upload(c, []string{"./photos"}, "/backup/", transfer.Options{})
+```
+
+Import them as `github.com/manzanit0/mega-cli/pkg/<name>`. Only
+`pkg/remote` depends on go-mega and none of its exported API exposes a
+go-mega type, so callers never import it; a test enforces this.
 
 ## Limitations
 

@@ -41,9 +41,7 @@ func TestLiveSyncRoundTrip(t *testing.T) {
 	c := liveClient(t)
 	base := remote.Parse(fmt.Sprintf("/mega-cli-sync-%d", time.Now().UnixNano()))
 	t.Cleanup(func() {
-		if n, err := c.Lookup(base); err == nil {
-			_ = c.Delete(n, true)
-		}
+		_, _ = c.Remove(base, remote.RemoveOptions{Recursive: true, Permanent: true})
 	})
 	src := t.TempDir()
 	write(t, src, "a/one.txt", "one")

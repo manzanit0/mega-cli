@@ -1,17 +1,12 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path"
-	"slices"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	mega "github.com/t3rm1n4l/go-mega"
 
 	"github.com/manzanit0/mega-cli/internal/ui"
 	"github.com/manzanit0/mega-cli/pkg/remote"
@@ -29,42 +24,13 @@ func pathArgs(args []string) []remote.Path {
 	return ps
 }
 
-// listing collects the entries shown for one path argument.
-func listing(c *remote.Client, p remote.Path, recursive bool) ([]Entry, error) {
-	var entries []Entry
-	if recursive {
-		err := c.Walk(p, func(cp remote.Path, n *mega.Node) error {
-			entries = append(entries, newEntry(c, cp, n))
-			return nil
-		})
-		return entries, err
-	}
-	if !p.IsRoot() {
-		n, err := c.Lookup(p)
-		if err != nil && !errors.Is(err, remote.ErrSharedRoot) {
-			return nil, err
-		}
-		if n != nil && !remote.IsDir(n) {
-			return []Entry{newEntry(c, p, n)}, nil
-		}
-	}
-	nodes, err := c.Children(p)
-	if err != nil {
-		return nil, err
-	}
-	for _, n := range nodes {
-		entries = append(entries, newEntry(c, p.Join(n.GetName()), n))
-	}
-	return entries, nil
-}
-
 // displayName returns the name to show, marking folders with a slash.
-func displayName(e Entry, full bool) string {
+func displayName(e remote.Entry, full bool) string {
 	name := e.Name
 	if full {
 		name = e.Path
 	}
-	if e.Type == "folder" {
+	if e.IsDir() {
 		name += "/"
 	}
 	return name
@@ -77,12 +43,12 @@ var showSizes = func() bool {
 }
 
 // sizeOf returns the human-readable size of an entry.
-func sizeOf(e Entry) string {
+func sizeOf(e remote.Entry) string {
 	return ui.Bytes(e.Size)
 }
 
 // printEntries renders entries as names or a long table.
-func printEntries(w io.Writer, entries []Entry, long, full bool) error {
+func printEntries(w io.Writer, entries []remote.Entry, long, full bool) error {
 	sizes := showSizes()
 	if !long && !sizes {
 		for _, e := range entries {
@@ -109,7 +75,7 @@ func printEntries(w io.Writer, entries []Entry, long, full bool) error {
 // newLsCmd builds `mega ls`.
 func newLsCmd() *cobra.Command {
 	var long, recursive bool
-	var order sortOrder
+	var order remote.Order
 	cmd := &cobra.Command{
 		Use:     "ls [path...]",
 		Aliases: []string{"list"},
@@ -117,7 +83,7 @@ func newLsCmd() *cobra.Command {
 		Example: `  mega ls -l --sort size /backup
   mega ls -R -s size / | head`,
 		RunE: func(_ *cobra.Command, args []string) error {
-			if err := order.validate(); err != nil {
+			if err := order.Validate(); err != nil {
 				return err
 			}
 			c, err := connect()
@@ -125,13 +91,13 @@ func newLsCmd() *cobra.Command {
 				return err
 			}
 			ps := pathArgs(args)
-			var all []Entry
+			var all []remote.Entry
 			for i, p := range ps {
-				entries, err := listing(c, p, recursive)
+				entries, err := c.List(p, recursive)
 				if err != nil {
 					return err
 				}
-				order.sortEntries(entries)
+				order.Sort(entries)
 				if flags.json {
 					all = append(all, entries...)
 					continue
@@ -159,9 +125,9 @@ func newLsCmd() *cobra.Command {
 }
 
 // nonNil turns a nil slice into an empty one so JSON prints [].
-func nonNil(e []Entry) []Entry {
+func nonNil(e []remote.Entry) []remote.Entry {
 	if e == nil {
-		return []Entry{}
+		return []remote.Entry{}
 	}
 	return e
 }
@@ -169,14 +135,14 @@ func nonNil(e []Entry) []Entry {
 // newTreeCmd builds `mega tree`.
 func newTreeCmd() *cobra.Command {
 	var depth int
-	var order sortOrder
+	var order remote.Order
 	cmd := &cobra.Command{
 		Use:     "tree [path]",
 		Short:   "Show a folder as a tree",
 		Example: `  mega tree -L 2 --sort size /projects`,
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if err := order.validate(); err != nil {
+			if err := order.Validate(); err != nil {
 				return err
 			}
 			c, err := connect()
@@ -199,51 +165,28 @@ type treePrinter struct {
 	// c is the MEGA client.
 	c *remote.Client
 	// order sorts siblings at every level.
-	order sortOrder
-}
-
-// treeItem pairs a node with its display entry.
-type treeItem struct {
-	// e is the display entry.
-	e Entry
-	// n is the underlying node.
-	n *mega.Node
-}
-
-// children returns the sorted children of p.
-func (t treePrinter) children(p remote.Path) ([]treeItem, error) {
-	nodes, err := t.c.Children(p)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]treeItem, len(nodes))
-	for i, n := range nodes {
-		items[i] = treeItem{e: newEntry(t.c, p.Join(n.GetName()), n), n: n}
-	}
-	slices.SortStableFunc(items, func(a, b treeItem) int {
-		return t.order.compare(a.e, b.e)
-	})
-	return items, nil
+	order remote.Order
 }
 
 // print recursively prints the children of p with box-drawing guides.
 func (t treePrinter) print(p remote.Path, indent string, depth int) error {
-	items, err := t.children(p)
+	entries, err := t.c.List(p, false)
 	if err != nil {
 		return err
 	}
-	for i, it := range items {
+	t.order.Sort(entries)
+	for i, e := range entries {
 		branch, next := "├── ", "│   "
-		if i == len(items)-1 {
+		if i == len(entries)-1 {
 			branch, next = "└── ", "    "
 		}
-		line := indent + branch + displayName(it.e, false)
+		line := indent + branch + displayName(e, false)
 		if showSizes() {
-			line += "  (" + ui.Bytes(it.e.Size) + ")"
+			line += "  (" + ui.Bytes(e.Size) + ")"
 		}
 		fmt.Fprintln(out, line)
-		if remote.IsDir(it.n) && depth != 1 {
-			if err := t.print(p.Join(it.e.Name), indent+next, depth-1); err != nil {
+		if e.IsDir() && depth != 1 {
+			if err := t.print(p.Join(e.Name), indent+next, depth-1); err != nil {
 				return err
 			}
 		}
@@ -263,28 +206,15 @@ func newFindCmd() *cobra.Command {
   mega find -i --name 'readme*' --json | jq -r '.[].path'`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if kind != "" && kind != "f" && kind != "d" {
-				return fmt.Errorf("--type must be f or d")
-			}
-			pattern := name
-			if ignoreCase {
-				pattern = strings.ToLower(pattern)
-			}
-			if _, err := path.Match(pattern, ""); err != nil {
-				return fmt.Errorf("bad --name pattern: %w", err)
+			o, err := findOptions(name, kind, ignoreCase)
+			if err != nil {
+				return err
 			}
 			c, err := connect()
 			if err != nil {
 				return err
 			}
-			var found []Entry
-			err = c.Walk(pathArgs(args)[0], func(p remote.Path, n *mega.Node) error {
-				e := newEntry(c, p, n)
-				if matches(e, pattern, kind, ignoreCase) {
-					found = append(found, e)
-				}
-				return nil
-			})
+			found, err := c.Find(pathArgs(args)[0], o)
 			if err != nil {
 				return err
 			}
@@ -300,20 +230,19 @@ func newFindCmd() *cobra.Command {
 	return cmd
 }
 
-// matches reports whether e satisfies the find filters.
-func matches(e Entry, pattern, kind string, ignoreCase bool) bool {
-	if kind == "f" && e.Type != "file" || kind == "d" && e.Type != "folder" {
-		return false
+// findOptions converts the find flags into library options.
+func findOptions(name, kind string, ignoreCase bool) (remote.FindOptions, error) {
+	o := remote.FindOptions{Name: name, IgnoreCase: ignoreCase}
+	switch kind {
+	case "":
+	case "f":
+		o.Type = remote.TypeFile
+	case "d":
+		o.Type = remote.TypeFolder
+	default:
+		return o, fmt.Errorf("--type must be f or d")
 	}
-	if pattern == "" {
-		return true
-	}
-	n := e.Name
-	if ignoreCase {
-		n = strings.ToLower(n)
-	}
-	ok, _ := path.Match(pattern, n)
-	return ok
+	return o, o.Validate()
 }
 
 // newStatCmd builds `mega stat`.
@@ -327,12 +256,10 @@ func newStatCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			p := remote.Parse(args[0])
-			n, err := c.Lookup(p)
+			e, err := c.Stat(remote.Parse(args[0]))
 			if err != nil {
 				return err
 			}
-			e := newEntry(c, p, n)
 			if flags.json {
 				return ui.JSON(out, e)
 			}
@@ -346,18 +273,6 @@ func newStatCmd() *cobra.Command {
 	}
 }
 
-// usage is the output of `mega du`.
-type usage struct {
-	// Path is the measured path.
-	Path string `json:"path"`
-	// Bytes is the total size of all files below the path.
-	Bytes int64 `json:"bytes"`
-	// Files is the number of files below the path.
-	Files int `json:"files"`
-	// Folders is the number of folders below the path.
-	Folders int `json:"folders"`
-}
-
 // newDuCmd builds `mega du`.
 func newDuCmd() *cobra.Command {
 	return &cobra.Command{
@@ -368,9 +283,9 @@ func newDuCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var all []usage
+			var all []remote.Usage
 			for _, p := range pathArgs(args) {
-				u, err := diskUsage(c, p)
+				u, err := c.DiskUsage(p)
 				if err != nil {
 					return err
 				}
@@ -387,29 +302,4 @@ func newDuCmd() *cobra.Command {
 			return tw.Flush()
 		},
 	}
-}
-
-// diskUsage totals the files and folders below p.
-func diskUsage(c *remote.Client, p remote.Path) (usage, error) {
-	u := usage{Path: p.String()}
-	if !p.IsRoot() {
-		n, err := c.Lookup(p)
-		if err != nil {
-			return u, err
-		}
-		if !remote.IsDir(n) {
-			u.Bytes, u.Files = n.GetSize(), 1
-			return u, nil
-		}
-	}
-	err := c.Walk(p, func(_ remote.Path, n *mega.Node) error {
-		if remote.IsDir(n) {
-			u.Folders++
-		} else {
-			u.Files++
-			u.Bytes += n.GetSize()
-		}
-		return nil
-	})
-	return u, err
 }

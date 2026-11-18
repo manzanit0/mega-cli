@@ -7,14 +7,12 @@ import (
 	"io"
 	"log"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
-	mega "github.com/t3rm1n4l/go-mega"
 
 	"github.com/manzanit0/mega-cli/internal/ui"
+	"github.com/manzanit0/mega-cli/pkg/auth"
 	"github.com/manzanit0/mega-cli/pkg/remote"
-	"github.com/manzanit0/mega-cli/pkg/session"
 )
 
 // Version is the CLI version, set at build time via -ldflags.
@@ -82,9 +80,11 @@ func Execute() int {
 // friendly rewrites terse go-mega errors into actionable messages.
 func friendly(err error) error {
 	switch {
-	case errors.Is(err, mega.ESID):
+	case errors.Is(err, remote.ErrSessionExpired):
 		return errors.New("session expired or revoked: run `mega login`")
-	case errors.Is(err, mega.EOVERQUOTA), errors.Is(err, mega.EGOINGOVERQUOTA):
+	case errors.Is(err, remote.ErrSharedRoot):
+		return errors.New("pick a specific shared folder, see `mega shares`")
+	case remote.IsQuotaExceeded(err):
 		return fmt.Errorf("%w: storage or transfer quota exceeded", err)
 	}
 	return err
@@ -102,30 +102,11 @@ func options() remote.Options {
 // connect returns a logged-in client from the stored session or from
 // MEGA_EMAIL and MEGA_PASSWORD.
 func connect() (*remote.Client, error) {
-	c, err := connectRaw()
+	c, err := auth.Connect(options())
 	if err != nil {
 		return nil, err
 	}
 	return c, c.SetWorkers(flags.workers)
-}
-
-// connectRaw performs the login without applying transfer settings.
-func connectRaw() (*remote.Client, error) {
-	s, err := session.Load()
-	if errors.Is(err, session.ErrNoSession) {
-		email, pass := os.Getenv("MEGA_EMAIL"), os.Getenv("MEGA_PASSWORD")
-		if email != "" && pass != "" {
-			return remote.Login(email, pass, os.Getenv("MEGA_MFA"), options())
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	key, err := s.Key()
-	if err != nil {
-		return nil, fmt.Errorf("corrupt session, run `mega login`: %w", err)
-	}
-	return remote.Resume(s.ID, key, options())
 }
 
 // progress returns a progress indicator for a transfer when appropriate.
@@ -134,36 +115,10 @@ func progress(label string, total int64) *ui.Progress {
 	return ui.NewProgress(os.Stderr, enabled, label, total)
 }
 
-// Entry is the JSON representation of a remote node.
-type Entry struct {
-	// Name is the node's file name.
-	Name string `json:"name"`
-	// Path is the node's full remote path.
-	Path string `json:"path"`
-	// Type is "file" or "folder".
-	Type string `json:"type"`
-	// Size is the size in bytes; for folders, the total of all files below.
-	Size int64 `json:"size"`
-	// Modified is the node's timestamp.
-	Modified time.Time `json:"modified"`
-	// Handle is MEGA's node handle.
-	Handle string `json:"handle"`
-}
-
-// newEntry builds an Entry for node n at path p.
-func newEntry(c *remote.Client, p remote.Path, n *mega.Node) Entry {
-	e := Entry{
-		Name:     n.GetName(),
-		Path:     p.String(),
-		Type:     "file",
-		Size:     c.Size(n),
-		Modified: n.GetTimeStamp(),
-		Handle:   n.GetHash(),
-	}
-	if remote.IsDir(n) {
-		e.Type = "folder"
-	}
-	return e
+// progressFactory adapts progress to the library's progress hook.
+func progressFactory(label string, total int64) (remote.ProgressFunc, func()) {
+	pb := progress(label, total)
+	return pb.Add, pb.Done
 }
 
 // out is where command results are written.
