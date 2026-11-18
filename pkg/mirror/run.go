@@ -7,8 +7,6 @@ import (
 	"path"
 	"path/filepath"
 
-	mega "github.com/t3rm1n4l/go-mega"
-
 	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
@@ -103,7 +101,7 @@ func Down(c *remote.Client, src remote.Path, dst string, o Options) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
-	if !remote.IsDir(root) {
+	if !root.IsDir() {
 		return Result{}, fmt.Errorf("%s: %w", src, remote.ErrNotDir)
 	}
 	srcTree, err := RemoteTree(c, src, o.Exclude)
@@ -165,7 +163,7 @@ func downOne(c *remote.Client, a Action, s Entry, dst string, o Options) error {
 		return os.RemoveAll(target)
 	}
 	add, done := o.progress(a.Path, s.Size)
-	err := c.Download(s.Node, target, add)
+	err := c.Download(s.Remote, target, add)
 	done()
 	if err != nil {
 		return err
@@ -212,33 +210,35 @@ type uploader struct {
 	root remote.Path
 	// dst is the current destination tree.
 	dst Tree
-	// folders maps relative folder paths to their nodes; "" is the root.
-	folders map[string]*mega.Node
+	// folders maps relative folder paths to their remote paths; "" is the
+	// root.
+	folders map[string]remote.Path
+	// hasRoot reports whether the destination root exists.
+	hasRoot bool
 	// o holds the sync options.
 	o Options
 }
 
 // newUploader scans the destination, which may not exist yet.
 func newUploader(c *remote.Client, dst remote.Path, o Options) (*uploader, error) {
-	u := &uploader{c: c, root: dst, dst: Tree{}, folders: map[string]*mega.Node{}, o: o}
-	p, n, err := c.Resolve(dst)
-	var nf *remote.NotFoundError
-	if errors.As(err, &nf) {
+	u := &uploader{c: c, root: dst, dst: Tree{}, folders: map[string]remote.Path{}, o: o}
+	p, e, err := c.Resolve(dst)
+	if remote.IsNotFound(err) {
 		return u, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !remote.IsDir(n) {
+	if !e.IsDir() {
 		return nil, fmt.Errorf("%s: %w", dst, remote.ErrNotDir)
 	}
-	u.root, u.folders[""] = p, n
+	u.root, u.folders[""], u.hasRoot = p, p, true
 	if u.dst, err = RemoteTree(c, p, o.Exclude); err != nil {
 		return nil, err
 	}
 	for rel, e := range u.dst {
 		if e.Dir {
-			u.folders[rel] = e.Node
+			u.folders[rel] = e.Remote
 		}
 	}
 	return u, nil
@@ -246,47 +246,55 @@ func newUploader(c *remote.Client, dst remote.Path, o Options) (*uploader, error
 
 // ensureRoot creates the destination folder if it does not exist.
 func (u *uploader) ensureRoot() error {
-	if u.folders[""] != nil {
+	if u.hasRoot {
 		return nil
 	}
-	n, err := u.c.Mkdir(u.root, true)
-	u.folders[""] = n
-	return err
+	if _, err := u.c.Mkdir(u.root, true); err != nil {
+		return err
+	}
+	u.folders[""], u.hasRoot = u.root, true
+	return nil
 }
 
 // parent returns the destination folder that will contain rel.
-func (u *uploader) parent(rel string) (*mega.Node, error) {
+func (u *uploader) parent(rel string) (remote.Path, error) {
 	dir := path.Dir(rel)
 	if dir == "." {
 		dir = ""
 	}
-	n := u.folders[dir]
-	if n == nil {
-		return nil, fmt.Errorf("parent folder %q missing", dir)
+	p, ok := u.folders[dir]
+	if !ok {
+		return remote.Path{}, fmt.Errorf("parent folder %q missing", dir)
 	}
-	return n, nil
+	return p, nil
 }
 
 // apply performs one action against MEGA.
 func (u *uploader) apply(a Action, s Entry) error {
 	if a.Op == Delete {
-		return u.c.Delete(u.dst[a.Path].Node, u.o.Permanent)
+		_, err := u.c.Remove(u.dst[a.Path].Remote, remote.RemoveOptions{
+			Recursive: true,
+			Permanent: u.o.Permanent,
+		})
+		return err
 	}
 	parent, err := u.parent(a.Path)
 	if err != nil {
 		return err
 	}
-	name := path.Base(a.Path)
+	target := parent.Join(path.Base(a.Path))
 	if a.Op == Mkdir {
-		n, err := u.c.MkdirIn(parent, name)
-		u.folders[a.Path] = n
-		return err
+		if _, err := u.c.Mkdir(target, false); err != nil {
+			return err
+		}
+		u.folders[a.Path] = target
+		return nil
 	}
 	if old, ok := u.dst[a.Path]; ok && a.Op == Update {
-		name = old.Node.GetName()
+		target = old.Remote
 	}
 	add, done := u.o.progress(a.Path, s.Size)
-	_, err = u.c.Upload(s.Path, parent, name, a.Op == Update, add)
+	_, err = u.c.Upload(s.Path, target, a.Op == Update, add)
 	done()
 	return err
 }

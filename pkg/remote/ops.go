@@ -45,18 +45,18 @@ func (c *Client) Remove(p Path, o RemoveOptions) (RemoveResult, error) {
 	if p.IsRoot() {
 		return RemoveResult{}, fmt.Errorf("refusing to remove %s", p)
 	}
-	n, err := c.Lookup(p)
+	n, err := c.lookup(p)
 	if o.IgnoreMissing && IsNotFound(err) {
 		return RemoveResult{}, nil
 	}
 	if err != nil {
 		return RemoveResult{}, err
 	}
-	if IsDir(n) && !o.Recursive {
+	if isDir(n) && !o.Recursive {
 		return RemoveResult{}, fmt.Errorf("%s: %w", p, ErrIsDir)
 	}
 	destroy := o.Permanent || p.NS == Trash
-	if err := c.Delete(n, destroy); err != nil {
+	if err := c.deleteNode(n, destroy); err != nil {
 		return RemoveResult{}, fmt.Errorf("%s: %w", p, err)
 	}
 	return RemoveResult{Removed: true, Destroyed: destroy}, nil
@@ -65,12 +65,12 @@ func (c *Client) Remove(p Path, o RemoveOptions) (RemoveResult, error) {
 // EmptyTrash permanently deletes everything in the trash and returns the
 // number of top-level items removed.
 func (c *Client) EmptyTrash() (int, error) {
-	nodes, err := c.Children(Path{NS: Trash})
+	nodes, err := c.children(Path{NS: Trash})
 	if err != nil {
 		return 0, err
 	}
 	for i, n := range nodes {
-		if err := c.Delete(n, true); err != nil {
+		if err := c.deleteNode(n, true); err != nil {
 			return i, fmt.Errorf("%s: %w", n.GetName(), err)
 		}
 	}
@@ -86,25 +86,25 @@ type MoveFunc func(src, dst Path)
 func (c *Client) MovePaths(srcs []Path, dst Path, fn MoveFunc) error {
 	resolved := make([]Path, len(srcs))
 	for i, s := range srcs {
-		p, _, err := c.Resolve(s)
+		p, _, err := c.resolve(s)
 		if err != nil {
 			return err
 		}
 		resolved[i] = p
 	}
-	dst, d, err := c.Resolve(dst)
+	dst, d, err := c.resolve(dst)
 	if err != nil && !IsNotFound(err) {
 		return err
 	}
 	switch {
-	case d != nil && IsDir(d):
+	case d != nil && isDir(d):
 		return c.moveInto(resolved, dst, d, fn)
 	case d != nil:
 		return fmt.Errorf("%s: %w", dst, ErrExists)
 	case len(resolved) > 1:
 		return &NotFoundError{Path: dst}
 	}
-	parent, err := c.Lookup(dst.Dir())
+	parent, err := c.lookup(dst.Dir())
 	if err != nil {
 		return err
 	}
@@ -126,14 +126,14 @@ func (c *Client) movePath(src Path, parent *mega.Node, target Path, fn MoveFunc)
 	if src.IsRoot() {
 		return errors.New("cannot move a root folder")
 	}
-	n, err := c.Lookup(src)
+	n, err := c.lookup(src)
 	if err != nil {
 		return err
 	}
-	if !IsDir(parent) {
+	if !isDir(parent) {
 		return fmt.Errorf("%s: %w", target.Dir(), ErrNotDir)
 	}
-	clash, err := c.Child(parent, target.Base())
+	clash, err := c.child(parent, target.Base())
 	if err != nil {
 		return err
 	}
@@ -141,12 +141,12 @@ func (c *Client) movePath(src Path, parent *mega.Node, target Path, fn MoveFunc)
 		return fmt.Errorf("%s: %w", target, ErrExists)
 	}
 	if src.Dir().String() != target.Dir().String() {
-		if err := c.Move(n, parent); err != nil {
+		if err := c.move(n, parent); err != nil {
 			return err
 		}
 	}
 	if src.Base() != target.Base() {
-		if err := c.Rename(n, target.Base()); err != nil {
+		if err := c.rename(n, target.Base()); err != nil {
 			return err
 		}
 	}
@@ -158,11 +158,11 @@ func (c *Client) movePath(src Path, parent *mega.Node, target Path, fn MoveFunc)
 
 // PublicLink exports a public link for the node at p.
 func (c *Client) PublicLink(p Path, includeKey bool) (string, error) {
-	n, err := c.Lookup(p)
+	n, err := c.lookup(p)
 	if err != nil {
 		return "", err
 	}
-	u, err := c.Link(n, includeKey)
+	u, err := c.link(n, includeKey)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p, err)
 	}
@@ -172,14 +172,14 @@ func (c *Client) PublicLink(p Path, includeKey bool) (string, error) {
 // Cat streams the file at p to w. The MAC is verified at the end, so a
 // corrupted stream is reported only after data was written.
 func (c *Client) Cat(p Path, w io.Writer, fn ProgressFunc) error {
-	n, err := c.Lookup(p)
+	n, err := c.lookup(p)
 	if err != nil {
 		return err
 	}
-	if IsDir(n) {
+	if isDir(n) {
 		return &fs.PathError{Op: "cat", Path: p.String(), Err: ErrIsDir}
 	}
-	if err := c.Stream(n, w, fn); err != nil {
+	if err := c.stream(n, w, fn); err != nil {
 		return fmt.Errorf("%s: %w", p, err)
 	}
 	return nil

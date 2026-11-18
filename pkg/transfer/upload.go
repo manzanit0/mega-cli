@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	mega "github.com/t3rm1n4l/go-mega"
-
 	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
@@ -44,25 +42,25 @@ func UploadReader(c *remote.Client, r io.Reader, dst remote.Path, o Options) (St
 	return u.stats, err
 }
 
-// file uploads src as name into parent, located at remote path p.
-func (u *uploader) file(src string, parent *mega.Node, p remote.Path) error {
+// file uploads src to the remote path p, whose parent folder must exist.
+func (u *uploader) file(src string, p remote.Path) error {
 	fi, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 	if u.o.SkipExisting {
-		existing, err := u.c.Child(parent, p.Base())
-		if err != nil {
+		existing, err := u.c.Stat(p)
+		if err != nil && !remote.IsNotFound(err) {
 			return err
 		}
-		if existing != nil && existing.GetSize() == fi.Size() {
+		if err == nil && !existing.IsDir() && existing.Size == fi.Size() {
 			u.stats.Skipped++
 			return nil
 		}
 	}
 	replace := u.o.Force || u.o.SkipExisting
 	pf, done := u.o.Progress.Start(p.String(), fi.Size())
-	_, err = u.c.Upload(src, parent, p.Base(), replace, pf)
+	_, err = u.c.Upload(src, p, replace, pf)
 	done()
 	if err != nil {
 		return fmt.Errorf("%s: %w", src, err)
@@ -97,11 +95,7 @@ func (u *uploader) tree(src string, p remote.Path) error {
 			u.o.skipped(lp)
 			return nil
 		}
-		parent, err := u.c.Lookup(target.Dir())
-		if err != nil {
-			return err
-		}
-		return u.file(lp, parent, target)
+		return u.file(lp, target)
 	})
 }
 
@@ -126,13 +120,13 @@ func (u *uploader) run(srcs []string, dst string) error {
 
 // isInto decides whether sources are placed inside dst or become dst.
 func (u *uploader) isInto(p remote.Path, raw string, n int) (bool, error) {
-	node, err := u.c.Lookup(p)
+	e, err := u.c.Stat(p)
 	switch {
 	case remote.IsNotFound(err):
 		return n > 1 || strings.HasSuffix(raw, "/"), nil
 	case err != nil:
 		return false, err
-	case remote.IsDir(node):
+	case e.IsDir():
 		return true, nil
 	case n > 1:
 		return false, fmt.Errorf("%s: %w", p, remote.ErrNotDir)
@@ -166,11 +160,10 @@ func (u *uploader) one(src string, target remote.Path) error {
 	if fi.IsDir() {
 		return u.tree(src, target)
 	}
-	parent, err := u.c.Mkdir(target.Dir(), true)
-	if err != nil {
+	if _, err := u.c.Mkdir(target.Dir(), true); err != nil {
 		return err
 	}
-	return u.file(src, parent, target)
+	return u.file(src, target)
 }
 
 // reader spools r to a temp file and uploads it as target.
@@ -190,9 +183,8 @@ func (u *uploader) reader(r io.Reader, target remote.Path) error {
 	if err != nil {
 		return err
 	}
-	parent, err := u.c.Mkdir(target.Dir(), true)
-	if err != nil {
+	if _, err := u.c.Mkdir(target.Dir(), true); err != nil {
 		return err
 	}
-	return u.file(tmp.Name(), parent, target)
+	return u.file(tmp.Name(), target)
 }

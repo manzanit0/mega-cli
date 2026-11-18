@@ -99,7 +99,9 @@ if err != nil {
 _, err = transfer.Upload(c, []string{"./photos"}, "/backup/", transfer.Options{})
 ```
 
-Import them as `github.com/manzanit0/mega-cli/pkg/<name>`.
+Import them as `github.com/manzanit0/mega-cli/pkg/<name>`. Only
+`pkg/remote` depends on go-mega and none of its exported API exposes a
+go-mega type, so callers never import it; a test enforces this.
 
 ## Limitations
 

@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	mega "github.com/t3rm1n4l/go-mega"
-
 	"github.com/manzanit0/mega-cli/pkg/remote"
 )
 
@@ -48,20 +46,20 @@ func sameSize(p string, size int64) bool {
 }
 
 // file downloads a single remote file to dst.
-func (d *downloader) file(p remote.Path, n *mega.Node, dst string) error {
-	if d.o.SkipExisting && sameSize(dst, n.GetSize()) {
+func (d *downloader) file(p remote.Path, e remote.Entry, dst string) error {
+	if d.o.SkipExisting && sameSize(dst, e.Size) {
 		d.stats.Skipped++
 		return nil
 	}
-	pf, done := d.o.Progress.Start(p.String(), n.GetSize())
-	err := d.c.Download(n, dst, pf)
+	pf, done := d.o.Progress.Start(p.String(), e.Size)
+	err := d.c.Download(p, dst, pf)
 	done()
 	if err != nil {
 		return fmt.Errorf("%s: %w", p, err)
 	}
 	d.o.notify(p.String(), dst)
 	d.stats.Files++
-	d.stats.Bytes += n.GetSize()
+	d.stats.Bytes += e.Size
 	return nil
 }
 
@@ -70,25 +68,25 @@ func (d *downloader) tree(p remote.Path, dst string) error {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
 	}
-	return d.c.Walk(p, func(cp remote.Path, n *mega.Node) error {
+	return d.c.Walk(p, func(cp remote.Path, e remote.Entry) error {
 		target := dst
 		for _, part := range cp.Parts[len(p.Parts):] {
 			target = filepath.Join(target, remote.LocalName(part))
 		}
-		if remote.IsDir(n) {
+		if e.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		return d.file(cp, n, target)
+		return d.file(cp, e, target)
 	})
 }
 
 // run resolves the destination and downloads p.
 func (d *downloader) run(p remote.Path, local string) error {
-	p, n, err := d.c.Resolve(p)
+	p, e, err := d.c.Resolve(p)
 	if err != nil {
 		return err
 	}
-	name := remote.LocalName(n.GetName())
+	name := remote.LocalName(e.Name)
 	if p.IsRoot() {
 		name = "MEGA"
 	}
@@ -96,8 +94,8 @@ func (d *downloader) run(p remote.Path, local string) error {
 	if isLocalDir(local) {
 		dst = filepath.Join(local, name)
 	}
-	if remote.IsDir(n) {
+	if e.IsDir() {
 		return d.tree(p, dst)
 	}
-	return d.file(p, n, dst)
+	return d.file(p, e, dst)
 }

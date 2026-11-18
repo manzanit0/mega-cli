@@ -30,7 +30,7 @@ func (s Storage) Percent() float64 {
 
 // Account returns the logged-in user's details.
 func (c *Client) Account() (Account, error) {
-	u, err := c.User()
+	u, err := c.user()
 	if err != nil {
 		return Account{}, err
 	}
@@ -39,7 +39,7 @@ func (c *Client) Account() (Account, error) {
 
 // Storage returns the account's storage usage.
 func (c *Client) Storage() (Storage, error) {
-	q, err := c.Quota()
+	q, err := c.quota()
 	if err != nil {
 		return Storage{}, err
 	}

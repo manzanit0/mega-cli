@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/manzanit0/mega-cli/pkg/remote"
 	"github.com/manzanit0/mega-cli/pkg/transfer"
 )
 
@@ -57,6 +60,9 @@ func runUpload(srcs []string, dst string, force, skip bool) error {
 		return err
 	}
 	stats, err := transfer.Upload(c, srcs, dst, uploadOptions(force, skip))
+	if errors.Is(err, remote.ErrExists) && !force && !skip {
+		return fmt.Errorf("%w (use --force to replace)", err)
+	}
 	if err != nil {
 		return err
 	}

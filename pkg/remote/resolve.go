@@ -34,10 +34,10 @@ func resolveParts[N any](level []N, parts []string, name func(N) string,
 	return nil, zero, false
 }
 
-// Resolve finds the node at p and returns p rewritten so that each part is
+// resolve finds the node at p and returns p rewritten so that each part is
 // a real node name. This lets "a/b/c" address a folder literally named
 // "a/b" when no folder "a" leads to a match.
-func (c *Client) Resolve(p Path) (Path, *mega.Node, error) {
+func (c *Client) resolve(p Path) (Path, *mega.Node, error) {
 	if p.IsRoot() {
 		n, err := c.rootNode(p.NS)
 		return p, n, err
@@ -62,7 +62,7 @@ func LocalName(name string) string {
 
 // dirChildren returns a folder's children, or false for files.
 func (c *Client) dirChildren(n *mega.Node) ([]*mega.Node, bool) {
-	if !IsDir(n) {
+	if !isDir(n) {
 		return nil, false
 	}
 	nodes, err := c.m.FS.GetChildren(n)

@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	mega "github.com/t3rm1n4l/go-mega"
 
 	"github.com/manzanit0/mega-cli/internal/ui"
 	"github.com/manzanit0/mega-cli/pkg/auth"
@@ -81,11 +80,11 @@ func Execute() int {
 // friendly rewrites terse go-mega errors into actionable messages.
 func friendly(err error) error {
 	switch {
-	case errors.Is(err, mega.ESID):
+	case errors.Is(err, remote.ErrSessionExpired):
 		return errors.New("session expired or revoked: run `mega login`")
 	case errors.Is(err, remote.ErrSharedRoot):
 		return errors.New("pick a specific shared folder, see `mega shares`")
-	case errors.Is(err, mega.EOVERQUOTA), errors.Is(err, mega.EGOINGOVERQUOTA):
+	case remote.IsQuotaExceeded(err):
 		return fmt.Errorf("%w: storage or transfer quota exceeded", err)
 	}
 	return err

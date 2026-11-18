@@ -60,8 +60,8 @@ func (c *Client) Find(root Path, o FindOptions) ([]Entry, error) {
 		return nil, err
 	}
 	var found []Entry
-	err := c.Walk(root, func(p Path, n *mega.Node) error {
-		if e := c.Entry(p, n); o.Matches(e) {
+	err := c.walk(root, func(p Path, n *mega.Node) error {
+		if e := c.entry(p, n); o.Matches(e) {
 			found = append(found, e)
 		}
 		return nil
@@ -85,17 +85,17 @@ type Usage struct {
 func (c *Client) DiskUsage(p Path) (Usage, error) {
 	u := Usage{Path: p.String()}
 	if !p.IsRoot() {
-		n, err := c.Lookup(p)
+		n, err := c.lookup(p)
 		if err != nil {
 			return u, err
 		}
-		if !IsDir(n) {
+		if !isDir(n) {
 			u.Bytes, u.Files = n.GetSize(), 1
 			return u, nil
 		}
 	}
-	err := c.Walk(p, func(_ Path, n *mega.Node) error {
-		if IsDir(n) {
+	err := c.walk(p, func(_ Path, n *mega.Node) error {
+		if isDir(n) {
 			u.Folders++
 		} else {
 			u.Files++

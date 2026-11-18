@@ -51,17 +51,17 @@ func (e Entry) IsDir() bool {
 	return e.Type == TypeFolder
 }
 
-// Entry builds the Entry for node n located at path p.
-func (c *Client) Entry(p Path, n *mega.Node) Entry {
+// entry builds the Entry for node n located at path p.
+func (c *Client) entry(p Path, n *mega.Node) Entry {
 	e := Entry{
 		Name:     n.GetName(),
 		Path:     p.String(),
 		Type:     TypeFile,
-		Size:     c.Size(n),
+		Size:     c.size(n),
 		Modified: n.GetTimeStamp(),
 		Handle:   n.GetHash(),
 	}
-	if IsDir(n) {
+	if isDir(n) {
 		e.Type = TypeFolder
 	}
 	return e
@@ -69,11 +69,11 @@ func (c *Client) Entry(p Path, n *mega.Node) Entry {
 
 // Stat returns the Entry for the node at p.
 func (c *Client) Stat(p Path) (Entry, error) {
-	n, err := c.Lookup(p)
+	n, err := c.lookup(p)
 	if err != nil {
 		return Entry{}, err
 	}
-	return c.Entry(p, n), nil
+	return c.entry(p, n), nil
 }
 
 // List returns the entries at p. For a folder these are its children, or
@@ -83,21 +83,21 @@ func (c *Client) List(p Path, recursive bool) ([]Entry, error) {
 		return c.listAll(p)
 	}
 	if !p.IsRoot() {
-		n, err := c.Lookup(p)
+		n, err := c.lookup(p)
 		if err != nil && !errors.Is(err, ErrSharedRoot) {
 			return nil, err
 		}
-		if n != nil && !IsDir(n) {
-			return []Entry{c.Entry(p, n)}, nil
+		if n != nil && !isDir(n) {
+			return []Entry{c.entry(p, n)}, nil
 		}
 	}
-	nodes, err := c.Children(p)
+	nodes, err := c.children(p)
 	if err != nil {
 		return nil, err
 	}
 	entries := make([]Entry, len(nodes))
 	for i, n := range nodes {
-		entries[i] = c.Entry(p.Join(n.GetName()), n)
+		entries[i] = c.entry(p.Join(n.GetName()), n)
 	}
 	return entries, nil
 }
@@ -105,8 +105,8 @@ func (c *Client) List(p Path, recursive bool) ([]Entry, error) {
 // listAll returns every descendant of p.
 func (c *Client) listAll(p Path) ([]Entry, error) {
 	var entries []Entry
-	err := c.Walk(p, func(cp Path, n *mega.Node) error {
-		entries = append(entries, c.Entry(cp, n))
+	err := c.walk(p, func(cp Path, n *mega.Node) error {
+		entries = append(entries, c.entry(cp, n))
 		return nil
 	})
 	return entries, err
